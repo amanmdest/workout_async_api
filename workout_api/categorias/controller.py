@@ -21,6 +21,18 @@ async def post(
     db_session: DataBaseDependency, 
     categoria_in: CategoriaIn = Body(...)
  ) -> CategoriaOut:
+    db_categoria = (await db_session.scalar(
+        select(CategoriaModel).where(
+            CategoriaModel.nome == categoria_in.nome
+            )
+        )
+    )
+
+    if db_categoria:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'O nome de categoria _{categoria_in.nome}_ já está sendo utilizado',
+        )
     categoria_out = CategoriaOut(id=uuid4(), **categoria_in.model_dump())
     categoria_model = CategoriaModel(**categoria_out.model_dump())
     

@@ -24,6 +24,19 @@ async def post(
     db_session: DataBaseDependency, 
     centro_treinamento_in: CentroTreinamentoIn = Body(...)
  ) -> CentroTreinamentoOut:
+    db_centro_trein = (await db_session.scalar(
+        select(CentroTreinamentoModel).where(
+            CentroTreinamentoModel.nome == centro_treinamento_in.nome
+            )
+        )
+    )
+
+    if db_centro_trein:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'O nome de categoria _{centro_treinamento_in.nome}_ já está sendo utilizado',
+        )
+    
     centro_treinamento_out = CentroTreinamentoOut(
         id=uuid4(), 
         **centro_treinamento_in.model_dump()

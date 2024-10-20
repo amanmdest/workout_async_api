@@ -9,8 +9,10 @@ from workout_api.categorias.models import CategoriaModel
 from workout_api.centros_treinamento.models import CentroTreinamentoModel
 from workout_api.contrib.dependencies import DataBaseDependency
 
-from sqlalchemy.future import select
+from fastapi_pagination import Page, paginate
 
+from sqlalchemy import or_, select
+# from sqlalchemy.future import select
 
 router = APIRouter()
 
@@ -18,14 +20,25 @@ router = APIRouter()
         '/listar_atleta', 
         summary='Listar atletas', 
         status_code=status.HTTP_200_OK,
-        response_model=list[AtletaOut],
+        response_model=Page[AtletaOut],
 )
-async def get_all(db_session: DataBaseDependency) -> list[AtletaOut]: 
-    atletas: list[AtletaOut] = (
-        await db_session.execute(select(AtletaModel))
-    ).scalars().all()
-    
-    return atletas
+async def get_all(
+    db_session: DataBaseDependency,
+    nome: str | None = None, 
+    cpf: str | None = None, 
+) -> Page[AtletaOut]:
+    query = select(AtletaModel)
+
+    if nome:
+        query = query.filter(AtletaModel.nome.contains(nome))
+    if cpf:
+        query = query.filter(AtletaModel.cpf.contains(cpf))
+
+    atletas: Page[AtletaOut] = (
+        await db_session.scalars(query)
+    ).all()
+
+    return paginate(atletas)
 
 
 @router.post(
@@ -38,6 +51,26 @@ async def post(
     db_session: DataBaseDependency, 
     atleta_in: AtletaIn = Body(...)
  ) -> AtletaOut: 
+    db_atleta = (await db_session.scalar(
+        select(AtletaModel).where(
+            or_(AtletaModel.nome == atleta_in.nome, 
+            AtletaModel.cpf == atleta_in.cpf)
+            )
+        )
+    )
+
+    if db_atleta:
+        if db_atleta.nome == atleta_in.nome:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'Já existe um atleta com o nome _{atleta_in.nome}_',
+            )
+        elif db_atleta.cpf == atleta_in.cpf:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'O cpf _{atleta_in.cpf}_ já está vinculado a um atleta',
+            )
+
     categoria_name = atleta_in.categoria.nome
     centro_treinamento_name = atleta_in.centro_treinamento.nome
 
@@ -62,7 +95,12 @@ async def post(
         )
 
     try:
-        atleta_out = AtletaOut(id=uuid4(), created_at=datetime.utcnow(), updated_at=datetime.utcnow(), **atleta_in.model_dump())
+        atleta_out = AtletaOut(
+            id=uuid4(), 
+            created_at=datetime.utcnow(), 
+            updated_at=datetime.utcnow(), 
+            **atleta_in.model_dump()
+        )
         atleta_model = AtletaModel(**atleta_out.model_dump(exclude={'categoria', 'centro_treinamento'}))
 
         atleta_model.categoria_id = categoria.pk_id
@@ -78,8 +116,6 @@ async def post(
         )
     
     return atleta_out
-
-
 
 
 @router.get(
@@ -108,7 +144,11 @@ async def get_by_id(id: UUID4, db_session: DataBaseDependency) -> AtletaOut:
         status_code=status.HTTP_200_OK,
         response_model=AtletaOut,
 )
-async def update_atleta(id: UUID4, db_session: DataBaseDependency, atleta_up: AtletaUpdate = Body(...)) -> AtletaOut: 
+async def update_atleta(
+    id: UUID4, 
+    db_session: DataBaseDependency, 
+    atleta_up: AtletaUpdate = Body(...)
+) -> AtletaOut: 
     atleta: AtletaOut = (
         await db_session.execute(select(AtletaModel).filter_by(id=id))
     ).scalars().first()
